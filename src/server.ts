@@ -6,11 +6,11 @@ import {
   createUIMessageStream,
   convertToModelMessages,
   createUIMessageStreamResponse,
-  type ToolSet
+  type ToolSet,
+  tool
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { cleanupMessages } from "./utils";
-import { tools } from "./tools";
 import { z } from "zod";
 
 interface Profile {
@@ -128,7 +128,7 @@ export class Chat extends AIChatAgent<Env> {
   }
 
   private async getTestInsightsKeywordSearch(
-    query: string,
+    _query: string,
     profileId: string
   ): Promise<string[]> {
     try {
@@ -140,7 +140,7 @@ export class Chat extends AIChatAgent<Env> {
          LIMIT 5`
       ).bind(profileId).all();
       
-      return results.results?.map((r: any) => r.summary).filter(Boolean) || [];
+      return results.results?.map((r) => (r as { summary: string }).summary).filter(Boolean) || [];
     } catch (error) {
       console.warn("Error retrieving test results:", error);
       return [];
@@ -157,7 +157,7 @@ export class Chat extends AIChatAgent<Env> {
          LIMIT 20`
       ).bind(profileId).all();
       
-      return results.results as any[] || [];
+      return (results.results || []) as Array<{test: string, value: string, date: string, summary: string}>;
     } catch (error) {
       console.warn("Error retrieving all test results:", error);
       return [];
@@ -329,7 +329,7 @@ For ALL dietary questions and advice requests → RESPOND WITH TEXT DIRECTLY, NO
 
         // Only provide tools when we have a profile AND user intent is to update/share data
         const availableTools = !shouldProvidTools ? undefined : {
-          updateProfileField: {
+          updateProfileField: tool({
             description: `DATABASE UPDATE TOOL - Use ONLY when user explicitly says to ADD, REMOVE, or UPDATE profile fields.
 
 CALL THIS TOOL WHEN:
@@ -344,7 +344,7 @@ DO NOT CALL THIS TOOL FOR:
 ❌ Any question or request for dietary advice
 
 If user is asking for suggestions, advice, or information → RESPOND WITH TEXT, DO NOT USE THIS TOOL.`,
-            parameters: updateProfileFieldSchema,
+            inputSchema: updateProfileFieldSchema,
             execute: async (args: {
               field: string;
               value: string;
@@ -489,8 +489,8 @@ If user is asking for suggestions, advice, or information → RESPOND WITH TEXT,
               };
             }
           }
-          },
-          addTestResult: {
+          }),
+          addTestResult: tool({
             description: `DATABASE STORAGE TOOL - Use ONLY when user shares actual test results with numbers.
 
 CALL THIS TOOL WHEN:
@@ -504,7 +504,7 @@ DO NOT CALL THIS TOOL FOR:
 ❌ Any request that doesn't include actual numeric test values
 
 Only use this when user is SHARING new test data, not asking questions about it.`,
-            parameters: addTestResultSchema,
+            inputSchema: addTestResultSchema,
             execute: async (args: {
               test: string;
               value: string;
@@ -572,7 +572,7 @@ Only use this when user is SHARING new test data, not asking questions about it.
                 };
               }
             }
-          }
+          })
         };
 
         const relevantInsights = profile
@@ -615,16 +615,19 @@ Only use this when user is SHARING new test data, not asking questions about it.
               if (event.toolCalls && event.toolCalls.length > 0) {
                 console.log("  - Tools called:", event.toolCalls.map(tc => tc.toolName));
                 event.toolCalls.forEach(tc => {
-                  console.log(`    ${tc.toolName}:`, JSON.stringify(tc.args, null, 2));
+                  const args = 'args' in tc ? tc.args : undefined;
+                  console.log(`    ${tc.toolName}:`, JSON.stringify(args, null, 2));
                 });
               }
               if (event.toolResults && event.toolResults.length > 0) {
                 event.toolResults.forEach(tr => {
-                  console.log(`    ${tr.toolName} result:`, JSON.stringify(tr.result, null, 2));
+                  const result = 'result' in tr ? tr.result : undefined;
+                  console.log(`    ${tr.toolName} result:`, JSON.stringify(result, null, 2));
                 });
               }
             },
-            onFinish: onFinish as any
+            // @ts-expect-error - Type mismatch between dynamic tools and ToolSet is expected
+            onFinish: onFinish
           });
 
           writer.merge(result.toUIMessageStream());

@@ -1,4 +1,4 @@
-# � AI Dietician
+# AI Dietician
 
 ![npm i agents command](./npm-agents-banner.svg)
 
@@ -89,38 +89,57 @@ An AI-powered dietician assistant that provides personalized, culturally-sensiti
   - Workflows
 - Node.js 18+
 
-## Quick Start
-
-1. Create a new project:
-
-```bash
-npx create-cloudflare@latest --template cloudflare/agents-starter
-```
-
-2. Install dependencies:
+## Installation
 
 ```bash
 npm install
 ```
 
-3. Set up your environment:
-
-Create a `.dev.vars` file:
-
-```env
-OPENAI_API_KEY=your_openai_api_key
-```
-
-4. Run locally:
+## Run Database Migrations
 
 ```bash
-npm start
+wrangler d1 migrations apply ai-dietician-db --local
 ```
 
-5. Deploy:
+## Run the App
 
 ```bash
-npm run deploy
+npm run dev
+```
+
+The app will be available at `http://localhost:5173`
+
+## Things to Try
+
+Once you create your profile, try these example prompts:
+
+**Share medical test results:**
+```
+"My TSH level is 4.2 mIU/L"
+"My glucose is 105 mg/dL"
+"My HbA1c is 5.7%"
+```
+
+**Get dietary recommendations:**
+```
+"What should I eat for breakfast?"
+"Can you suggest a meal plan for diabetes?"
+"I need protein-rich vegetarian options"
+"Give me a week's meal plan"
+```
+
+**Update your profile:**
+```
+"Add peanut allergy to my profile"
+"I'm now following a vegan diet"
+"Update my conditions to include hypothyroidism"
+```
+
+**Ask about specific foods:**
+```
+"Is quinoa good for my thyroid?"
+"Can I eat bananas with diabetes?"
+"What are the best foods for my condition?"
 ```
 
 ## Project Structure
@@ -128,8 +147,7 @@ npm run deploy
 ```
 ├── src/
 │   ├── app.tsx        # Chat UI implementation
-│   ├── server.ts      # Chat agent logic
-│   ├── tools.ts       # Tool definitions
+│   ├── server.ts      # Chat agent logic & tool definitions
 │   ├── utils.ts       # Helper functions
 │   └── styles.css     # UI styling
 ```
