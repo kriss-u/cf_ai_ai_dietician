@@ -1,25 +1,93 @@
-# 🤖 Chat Agent Starter Kit
+# � AI Dietician
 
 ![npm i agents command](./npm-agents-banner.svg)
 
 <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/agents-starter"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"/></a>
 
-A starter template for building AI-powered chat agents using Cloudflare's Agent platform, powered by [`agents`](https://www.npmjs.com/package/agents). This project provides a foundation for creating interactive chat experiences with AI, complete with a modern UI and tool integration capabilities.
+An AI-powered dietician assistant that provides personalized, culturally-sensitive dietary recommendations based on your health profile and medical test results. Built on Cloudflare's Agent platform with Workers AI.
+
+⚠️ **IMPORTANT**: This is a demonstration AI for educational purposes only. Always consult qualified healthcare professionals before making any dietary changes.
 
 ## Features
 
-- 💬 Interactive chat interface with AI
-- 🛠️ Built-in tool system with human-in-the-loop confirmation
-- 📅 Advanced task scheduling (one-time, delayed, and recurring via cron)
-- 🌓 Dark/Light theme support
-- ⚡️ Real-time streaming responses
-- 🔄 State management and chat history
-- 🎨 Modern, responsive UI
+- 🍎 **Personalized Diet Recommendations** - Get evidence-based dietary advice tailored to your health profile
+- 📝 **Profile-First Architecture** - Explicit form-based profile creation ensures data accuracy
+- 🧬 **Medical Test Integration** - Upload test results (TSH, glucose, etc.) for more accurate recommendations
+- 🌍 **Cultural Sensitivity** - Respects religious dietary restrictions (Halal, Kosher, Hindu vegetarian, etc.)
+- 🥩 **Dietary Preferences** - Vegetarian, Vegan, Pescatarian, Halal, Kosher options
+- 🏥 **Multi-Condition Support** - Handles multiple medical conditions simultaneously (thyroid, diabetes, etc.)
+- 💬 **Interactive Chat Interface** - Natural conversation with AI dietician
+- 🔄 **Conversational Updates** - Update profile information through chat after initial setup
+- 🌓 **Dark/Light Theme** - Comfortable viewing experience
+- ⚡️ **Real-time Streaming** - Fast, responsive AI responses
+- 📊 **Vector Search** - RAG-based retrieval of relevant test history
+- 🔒 **Profile-Based Security** - Validated workflow ensures data integrity
+- 👤 **Multi-Profile Support** - Create and switch between different user profiles
+
+## How It Works
+
+### Profile-First Flow
+
+```
+┌─────────────────┐
+│   Open App      │
+└────────┬────────┘
+         │
+         ▼
+    ┌─────────┐
+    │ Profile? │
+    └────┬────┘
+         │
+    ┌────┴─────┐
+    │          │
+    NO        YES
+    │          │
+    ▼          ▼
+┌────────────┐  ┌───────────────┐
+│  Profile   │  │  Chat Interface│
+│  Setup     │  │  with AI       │
+│  Form      │  │  Dietician     │
+└─────┬──────┘  └───────┬────────┘
+      │                 │
+      │  Submit         │  Update via
+      │  Required:      │  - Form (header)
+      │  • Name         │  - Chat conversation
+      │  • Age          │
+      │                 │
+      │  Optional:      │
+      │  • Sex          │
+      │  • Race         │
+      │  • Religion     │
+      │  • Meat Choice  │
+      │  • Allergies    │
+      │  • Exclusions   │
+      │  • Conditions   │
+      │                 │
+      └────────┬────────┘
+               │
+               ▼
+      ┌─────────────────┐
+      │  Personalized   │
+      │  Dietary Advice │
+      └─────────────────┘
+```
+
+### Key Benefits
+
+1. **No Hallucinations**: User data is collected through forms, not inferred by LLM
+2. **Data Certainty**: All critical information (allergies, conditions) is explicit
+3. **Better UX**: Users know exactly what information is needed
+4. **Safety First**: Allergies and conditions are collected upfront
+5. **Flexibility**: Still allows conversational updates after initial setup
 
 ## Prerequisites
 
-- Cloudflare account
-- OpenAI API key
+- Cloudflare account with:
+  - Workers AI access
+  - D1 Database
+  - Vectorize
+  - Workflows
+- Node.js 18+
 
 ## Quick Start
 

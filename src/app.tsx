@@ -1,45 +1,83 @@
-/** biome-ignore-all lint/correctness/useUniqueElementIds: it's alright */
-import { useEffect, useState, useRef, useCallback, use } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAgent } from "agents/react";
 import { isToolUIPart } from "ai";
 import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
-import type { tools } from "./tools";
-
-// Component imports
 import { Button } from "@/components/button/Button";
 import { Card } from "@/components/card/Card";
 import { Avatar } from "@/components/avatar/Avatar";
-import { Toggle } from "@/components/toggle/Toggle";
 import { Textarea } from "@/components/textarea/Textarea";
 import { MemoizedMarkdown } from "@/components/memoized-markdown";
 import { ToolInvocationCard } from "@/components/tool-invocation-card/ToolInvocationCard";
-
-// Icon imports
+import { ProfileSetup } from "@/components/profile-setup/ProfileSetup";
 import {
-  Bug,
-  Moon,
-  Robot,
-  Sun,
-  Trash,
-  PaperPlaneTilt,
-  Stop
+  MoonIcon,
+  RobotIcon,
+  SunIcon,
+  TrashIcon,
+  PaperPlaneTiltIcon,
+  StopIcon,
+  UserIcon,
+  TestTubeIcon,
+  PlusIcon,
+  ChatCircleDotsIcon,
+  XIcon
 } from "@phosphor-icons/react";
-
-// List of tools that require human confirmation
-// NOTE: this should match the tools that don't have execute functions in tools.ts
-const toolsRequiringConfirmation: (keyof typeof tools)[] = [
-  "getWeatherInformation"
-];
 
 export default function Chat() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
-    // Check localStorage first, default to dark if not found
     const savedTheme = localStorage.getItem("theme");
     return (savedTheme as "dark" | "light") || "dark";
   });
-  const [showDebug, setShowDebug] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState("auto");
+  const [showProfile, setShowProfile] = useState(false);
+  const [showProfileList, setShowProfileList] = useState(false);
+  const [showChatsList, setShowChatsList] = useState(false);
+  const [isCreatingNewProfile, setIsCreatingNewProfile] = useState(false);
+  const [profileList, setProfileList] = useState<
+    {
+      id: string;
+      name: string;
+      age_at_creation: number;
+      sex: string | null;
+      allergies: string | null;
+      conditions: string | null;
+    }[]
+  >([]);
+  const [chatsList, setChatsList] = useState<
+    {
+      id: string;
+      profile_id: string;
+      title: string;
+      created_at: number;
+      updated_at: number;
+    }[]
+  >([]);
+  const [currentProfile, setCurrentProfile] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [currentChatSession, setCurrentChatSession] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [profile, setProfile] = useState({
+    name: "",
+    age: "",
+    sex: "",
+    race: "",
+    religion: "",
+    allergies: "",
+    conditions: ""
+  });
+  const [testResult, setTestResult] = useState({
+    test: "",
+    value: "",
+    date: ""
+  });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [hasProfile, setHasProfile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -47,7 +85,6 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    // Apply theme class on mount and when theme changes
     if (theme === "dark") {
       document.documentElement.classList.add("dark");
       document.documentElement.classList.remove("light");
@@ -55,20 +92,14 @@ export default function Chat() {
       document.documentElement.classList.remove("dark");
       document.documentElement.classList.add("light");
     }
-
-    // Save theme preference to localStorage
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // Scroll to bottom on mount
   useEffect(() => {
     scrollToBottom();
   }, [scrollToBottom]);
 
-  const toggleTheme = () => {
-    const newTheme = theme === "dark" ? "light" : "dark";
-    setTheme(newTheme);
-  };
+  const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
   const agent = useAgent({
     agent: "chat"
@@ -110,67 +141,375 @@ export default function Chat() {
     status,
     sendMessage,
     stop
-  } = useAgentChat<unknown, UIMessage<{ createdAt: string }>>({
-    agent
-  });
+  } = useAgentChat<unknown, UIMessage<{ createdAt: string }>>({ agent });
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     agentMessages.length > 0 && scrollToBottom();
   }, [agentMessages, scrollToBottom]);
 
-  const pendingToolCallConfirmation = agentMessages.some((m: UIMessage) =>
-    m.parts?.some(
-      (part) =>
-        isToolUIPart(part) &&
-        part.state === "input-available" &&
-        // Manual check inside the component
-        toolsRequiringConfirmation.includes(
-          part.type.replace("tool-", "") as keyof typeof tools
-        )
-    )
-  );
+  const loadProfiles = useCallback(async () => {
+    const response = await fetch("/api/agents/chat/profiles");
+    const profiles = (await response.json()) as {
+      id: string;
+      name: string;
+      age_at_creation: number;
+      sex: string | null;
+      allergies: string | null;
+      conditions: string | null;
+    }[];
+    setProfileList(profiles);
+  }, []);
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const loadChats = useCallback(async () => {
+    try {
+      const response = await fetch("/api/agents/chat/chats");
+      const chats = (await response.json()) as {
+        id: string;
+        profile_id: string;
+        title: string;
+        created_at: number;
+        updated_at: number;
+      }[];
+      setChatsList(chats);
+    } catch (error) {
+      console.error("Error loading chats:", error);
+      setChatsList([]);
+    }
+  }, []);
+
+  const createNewChat = async () => {
+    try {
+      const response = await fetch("/api/agents/chat/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New Chat" })
+      });
+      const newChat = (await response.json()) as { id: string; title: string };
+      setCurrentChatSession(newChat);
+      clearHistory();
+      await loadChats();
+      setShowChatsList(false);
+    } catch (error) {
+      console.error("Error creating chat:", error);
+    }
   };
 
+  const switchToChat = async (chatId: string, chatTitle: string) => {
+    try {
+      await fetch("/api/agents/chat/chat/set", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatSessionId: chatId })
+      });
+      setCurrentChatSession({ id: chatId, title: chatTitle });
+      clearHistory();
+      setShowChatsList(false);
+    } catch (error) {
+      console.error("Error switching chat:", error);
+    }
+  };
+
+  const deleteChat = async (chatId: string) => {
+    try {
+      await fetch(`/api/agents/chat/chats/${chatId}`, {
+        method: "DELETE"
+      });
+      
+      // If deleting current chat, create a new one
+      if (currentChatSession?.id === chatId) {
+        await createNewChat();
+      }
+      
+      await loadChats();
+    } catch (error) {
+      console.error("Error deleting chat:", error);
+    }
+  };
+
+  const saveProfile = async () => {
+    await fetch(`/api/agents/chat/profile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: profile.name,
+        ageAtCreation: parseInt(profile.age, 10),
+        profileCreatedAt: Date.now(),
+        sex: profile.sex,
+        race: profile.race,
+        religion: profile.religion,
+        allergies: profile.allergies
+          .split(",")
+          .map((a) => a.trim())
+          .filter((a) => a),
+        conditions: profile.conditions
+          .split(",")
+          .map((c) => c.trim())
+          .filter((c) => c),
+        meatChoice: "",
+        foodExclusions: []
+      })
+    });
+    setShowProfile(false);
+    setIsCreatingNewProfile(false);
+    setProfile({
+      name: "",
+      age: "",
+      sex: "",
+      race: "",
+      religion: "",
+      allergies: "",
+      conditions: ""
+    });
+    await loadProfiles();
+
+    // Get the current profile info
+    const profileResponse = await fetch("/api/agents/chat/profile");
+    const currentProfileData = (await profileResponse.json()) as {
+      id: string;
+      name: string;
+    };
+    if (currentProfileData.name) {
+      setCurrentProfile({
+        id: currentProfileData.id,
+        name: currentProfileData.name
+      });
+    }
+  };
+
+  const deleteProfile = async () => {
+    await fetch("/api/agents/chat/profile", { method: "DELETE" });
+    setShowDeleteConfirm(false);
+    setCurrentProfile(null);
+    clearHistory();
+    await loadProfiles();
+  };
+
+  const switchProfile = async (profileId: string, profileName: string) => {
+    await fetch("/api/agents/chat/profile/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId })
+    });
+    setCurrentProfile({ id: profileId, name: profileName });
+    setShowProfileList(false);
+    clearHistory();
+    setCurrentChatSession(null);
+    // Load chats for the new profile
+    await loadChats();
+    // Create a new chat if none exist
+    const response = await fetch("/api/agents/chat/chats");
+    const chats = await response.json();
+    if (chats.length === 0) {
+      await createNewChat();
+    }
+  };
+
+  const saveTestResult = async () => {
+    await fetch(`/api/agents/chat/test-result`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(testResult)
+    });
+    setTestResult({ test: "", value: "", date: "" });
+    // Show a success message or just clear the form
+  };
+
+  const formatTime = (date: Date) =>
+    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const startNewChat = async () => {
+    await createNewChat();
+  };
+
+  useEffect(() => {
+    const initializeProfile = async () => {
+      try {
+        // Load profiles
+        await loadProfiles();
+
+        // Load current profile
+        const profileResponse = await fetch("/api/agents/chat/profile");
+        const profileData = await profileResponse.json() as { id: string; name: string };
+        
+        if (profileData.name) {
+          setCurrentProfile({ id: profileData.id, name: profileData.name });
+          setHasProfile(true);
+          
+          // Load chats for current profile
+          await loadChats();
+          
+          // Get current chat session
+          const chatResponse = await fetch("/api/agents/chat/chat/current");
+          const chatData = await chatResponse.json();
+          
+          if (chatData.chatSessionId) {
+            const chatsResponse = await fetch("/api/agents/chat/chats");
+            const chats = await chatsResponse.json() as Array<{id: string; title: string}>;
+            const currentChat = chats.find((c) => c.id === chatData.chatSessionId);
+            if (currentChat) {
+              setCurrentChatSession({ id: currentChat.id, title: currentChat.title });
+            } else {
+              // Create a new chat if current one not found
+              const newChatResponse = await fetch("/api/agents/chat/chats", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: "New Chat" })
+              });
+              const newChat = await newChatResponse.json();
+              setCurrentChatSession(newChat);
+            }
+          } else {
+            // Create a new chat if none exist
+            const newChatResponse = await fetch("/api/agents/chat/chats", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ title: "New Chat" })
+            });
+            const newChat = await newChatResponse.json();
+            setCurrentChatSession(newChat);
+          }
+        } else {
+          setHasProfile(false);
+        }
+      } catch (error) {
+        console.error("Error initializing profile:", error);
+        setHasProfile(false);
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    initializeProfile();
+  }, [loadProfiles, loadChats]);
+
+  const handleProfileCreated = async () => {
+    // Reload the current profile after creation
+    const response = await fetch("/api/agents/chat/profile");
+    const profileData = await response.json() as { id: string; name: string };
+    if (profileData.name) {
+      setCurrentProfile({ id: profileData.id, name: profileData.name });
+      setHasProfile(true);
+      // Create initial chat for new profile
+      await createNewChat();
+    }
+    await loadProfiles();
+  };
+
+  useEffect(() => {
+    // Load profile data when showing profile form
+    if (showProfile && currentProfile && !isCreatingNewProfile) {
+      fetch("/api/agents/chat/profile")
+        .then((res) => res.json())
+        .then((data) => {
+          const profileData = data as {
+            name: string;
+            age_at_creation: number;
+            sex: string;
+            race: string;
+            religion: string;
+            allergies: string;
+            conditions: string;
+          };
+          if (profileData.name) {
+            setProfile({
+              name: profileData.name || "",
+              age: profileData.age_at_creation?.toString() || "",
+              sex: profileData.sex || "",
+              race: profileData.race || "",
+              religion: profileData.religion || "",
+              allergies: profileData.allergies || "",
+              conditions: profileData.conditions || ""
+            });
+          }
+        });
+    } else if (showProfile && isCreatingNewProfile) {
+      // Clear form for new profile
+      setProfile({
+        name: "",
+        age: "",
+        sex: "",
+        race: "",
+        religion: "",
+        allergies: "",
+        conditions: ""
+      });
+    }
+  }, [showProfile, currentProfile, isCreatingNewProfile]);
+
+  // Show profile setup if no profile exists and not loading
+  if (!isLoadingProfile && !hasProfile) {
+    return <ProfileSetup onProfileCreated={handleProfileCreated} />;
+  }
+
+  // Show loading state while checking for profile
+  if (isLoadingProfile) {
+    return (
+      <div className="h-screen w-full flex justify-center items-center">
+        <div className="text-center">
+          <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex mb-4">
+            <RobotIcon size={32} weight="bold" />
+          </div>
+          <p className="text-neutral-600 dark:text-neutral-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-[100vh] w-full p-4 flex justify-center items-center bg-fixed overflow-hidden">
-      <HasOpenAIKey />
+    <div className="h-screen w-full p-4 flex justify-center items-center bg-fixed overflow-hidden">
       <div className="h-[calc(100vh-2rem)] w-full mx-auto max-w-lg flex flex-col shadow-xl rounded-md overflow-hidden relative border border-neutral-300 dark:border-neutral-800">
-        <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-0 z-10">
-          <div className="flex items-center justify-center h-8 w-8">
-            <svg
-              width="28px"
-              height="28px"
-              className="text-[#F48120]"
-              data-icon="agents"
-            >
-              <title>Cloudflare Agents</title>
-              <symbol id="ai:local:agents" viewBox="0 0 80 79">
-                <path
-                  fill="currentColor"
-                  d="M69.3 39.7c-3.1 0-5.8 2.1-6.7 5H48.3V34h4.6l4.5-2.5c1.1.8 2.5 1.2 3.9 1.2 3.8 0 7-3.1 7-7s-3.1-7-7-7-7 3.1-7 7c0 .9.2 1.8.5 2.6L51.9 30h-3.5V18.8h-.1c-1.3-1-2.9-1.6-4.5-1.9h-.2c-1.9-.3-3.9-.1-5.8.6-.4.1-.8.3-1.2.5h-.1c-.1.1-.2.1-.3.2-1.7 1-3 2.4-4 4 0 .1-.1.2-.1.2l-.3.6c0 .1-.1.1-.1.2v.1h-.6c-2.9 0-5.7 1.2-7.7 3.2-2.1 2-3.2 4.8-3.2 7.7 0 .7.1 1.4.2 2.1-1.3.9-2.4 2.1-3.2 3.5s-1.2 2.9-1.4 4.5c-.1 1.6.1 3.2.7 4.7s1.5 2.9 2.6 4c-.8 1.8-1.2 3.7-1.1 5.6 0 1.9.5 3.8 1.4 5.6s2.1 3.2 3.6 4.4c1.3 1 2.7 1.7 4.3 2.2v-.1q2.25.75 4.8.6h.1c0 .1.1.1.1.1.9 1.7 2.3 3 4 4 .1.1.2.1.3.2h.1c.4.2.8.4 1.2.5 1.4.6 3 .8 4.5.7.4 0 .8-.1 1.3-.1h.1c1.6-.3 3.1-.9 4.5-1.9V62.9h3.5l3.1 1.7c-.3.8-.5 1.7-.5 2.6 0 3.8 3.1 7 7 7s7-3.1 7-7-3.1-7-7-7c-1.5 0-2.8.5-3.9 1.2l-4.6-2.5h-4.6V48.7h14.3c.9 2.9 3.5 5 6.7 5 3.8 0 7-3.1 7-7s-3.1-7-7-7m-7.9-16.9c1.6 0 3 1.3 3 3s-1.3 3-3 3-3-1.3-3-3 1.4-3 3-3m0 41.4c1.6 0 3 1.3 3 3s-1.3 3-3 3-3-1.3-3-3 1.4-3 3-3M44.3 72c-.4.2-.7.3-1.1.3-.2 0-.4.1-.5.1h-.2c-.9.1-1.7 0-2.6-.3-1-.3-1.9-.9-2.7-1.7-.7-.8-1.3-1.7-1.6-2.7l-.3-1.5v-.7q0-.75.3-1.5c.1-.2.1-.4.2-.7s.3-.6.5-.9c0-.1.1-.1.1-.2.1-.1.1-.2.2-.3s.1-.2.2-.3c0 0 0-.1.1-.1l.6-.6-2.7-3.5c-1.3 1.1-2.3 2.4-2.9 3.9-.2.4-.4.9-.5 1.3v.1c-.1.2-.1.4-.1.6-.3 1.1-.4 2.3-.3 3.4-.3 0-.7 0-1-.1-2.2-.4-4.2-1.5-5.5-3.2-1.4-1.7-2-3.9-1.8-6.1q.15-1.2.6-2.4l.3-.6c.1-.2.2-.4.3-.5 0 0 0-.1.1-.1.4-.7.9-1.3 1.5-1.9 1.6-1.5 3.8-2.3 6-2.3q1.05 0 2.1.3v-4.5c-.7-.1-1.4-.2-2.1-.2-1.8 0-3.5.4-5.2 1.1-.7.3-1.3.6-1.9 1s-1.1.8-1.7 1.3c-.3.2-.5.5-.8.8-.6-.8-1-1.6-1.3-2.6-.2-1-.2-2 0-2.9.2-1 .6-1.9 1.3-2.6.6-.8 1.4-1.4 2.3-1.8l1.8-.9-.7-1.9c-.4-1-.5-2.1-.4-3.1s.5-2.1 1.1-2.9q.9-1.35 2.4-2.1c.9-.5 2-.8 3-.7.5 0 1 .1 1.5.2 1 .2 1.8.7 2.6 1.3s1.4 1.4 1.8 2.3l4.1-1.5c-.9-2-2.3-3.7-4.2-4.9q-.6-.3-.9-.6c.4-.7 1-1.4 1.6-1.9.8-.7 1.8-1.1 2.9-1.3.9-.2 1.7-.1 2.6 0 .4.1.7.2 1.1.3V72zm25-22.3c-1.6 0-3-1.3-3-3 0-1.6 1.3-3 3-3s3 1.3 3 3c0 1.6-1.3 3-3 3"
-                />
-              </symbol>
-              <use href="#ai:local:agents" />
-            </svg>
-          </div>
-
+        <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-0 z-10 bg-white dark:bg-neutral-950">
+          <Button
+            variant="ghost"
+            size="md"
+            shape="square"
+            className="rounded-full h-9 w-9"
+            onClick={() => setShowProfileList(!showProfileList)}
+            tooltip="Switch profile"
+          >
+            <UserIcon size={20} weight="bold" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            shape="square"
+            className="rounded-full h-9 w-9"
+            onClick={() => setShowChatsList(!showChatsList)}
+            tooltip="View chats"
+          >
+            <ChatCircleDotsIcon size={20} weight="bold" />
+          </Button>
           <div className="flex-1">
-            <h2 className="font-semibold text-base">AI Chat Agent</h2>
+            <h2 className="font-semibold text-base">AI Dietician</h2>
+            {currentProfile && currentChatSession && (
+              <p className="text-xs text-neutral-600 dark:text-neutral-400 truncate">
+                {currentProfile.name} • {currentChatSession.title}
+              </p>
+            )}
           </div>
-
-          <div className="flex items-center gap-2 mr-2">
-            <Bug size={16} />
-            <Toggle
-              toggled={showDebug}
-              aria-label="Toggle debug mode"
-              onClick={() => setShowDebug((prev) => !prev)}
-            />
-          </div>
-
+          <Button
+            variant="ghost"
+            size="md"
+            shape="square"
+            className="rounded-full h-9 w-9"
+            onClick={startNewChat}
+            tooltip="New chat"
+          >
+            <PlusIcon size={20} weight="bold" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            shape="square"
+            className="rounded-full h-9 w-9"
+            onClick={() => {
+              setIsCreatingNewProfile(false);
+              setShowProfile(!showProfile);
+            }}
+            tooltip="Edit profile"
+          >
+            <TestTubeIcon size={20} weight="bold" />
+          </Button>
           <Button
             variant="ghost"
             size="md"
@@ -178,42 +517,361 @@ export default function Chat() {
             className="rounded-full h-9 w-9"
             onClick={toggleTheme}
           >
-            {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="md"
-            shape="square"
-            className="rounded-full h-9 w-9"
-            onClick={clearHistory}
-          >
-            <Trash size={20} />
+            {theme === "dark" ? (
+              <SunIcon size={20} weight="bold" />
+            ) : (
+              <MoonIcon size={20} weight="bold" />
+            )}
           </Button>
         </div>
 
-        {/* Messages */}
+        {showProfileList && (
+          <div className="p-4 border-b border-neutral-300 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 max-h-[400px] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Switch Profile</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                shape="square"
+                className="rounded-full h-7 w-7"
+                onClick={() => setShowProfileList(false)}
+              >
+                <XIcon size={16} weight="bold" />
+              </Button>
+            </div>
+            {profileList.length === 0 ? (
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                No profiles yet.
+              </p>
+            ) : (
+              <div className="space-y-2 mb-3">
+                {profileList.map((prof) => (
+                  <button
+                    key={prof.id}
+                    type="button"
+                    className={`w-full p-3 rounded-md cursor-pointer transition-colors text-left ${
+                      currentProfile?.id === prof.id
+                        ? "bg-[#F48120]/10 border border-[#F48120]/30"
+                        : "bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-750"
+                    }`}
+                    onClick={() => switchProfile(prof.id, prof.name)}
+                  >
+                    <p className="font-semibold text-sm">{prof.name}</p>
+                    <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                      Age: {prof.age_at_creation}
+                      {prof.sex && ` • ${prof.sex}`}
+                    </p>
+                    {prof.conditions && (
+                      <p className="text-xs text-neutral-600 dark:text-neutral-400 truncate">
+                        Conditions: {prof.conditions}
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Button
+              onClick={() => {
+                setShowProfileList(false);
+                setIsCreatingNewProfile(true);
+                // Clear the profile form for new profile creation
+                setProfile({
+                  name: "",
+                  age: "",
+                  sex: "",
+                  race: "",
+                  religion: "",
+                  allergies: "",
+                  conditions: ""
+                });
+                setShowProfile(true);
+              }}
+              className="w-full bg-[#F48120] hover:bg-[#F48120]/90 text-white"
+              size="sm"
+            >
+              <PlusIcon size={16} weight="bold" className="mr-2" />
+              Create New Profile
+            </Button>
+          </div>
+        )}
+
+        {showChatsList && (
+          <div className="p-4 border-b border-neutral-300 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 max-h-[400px] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Chat History</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                shape="square"
+                className="rounded-full h-7 w-7"
+                onClick={() => setShowChatsList(false)}
+              >
+                <XIcon size={16} weight="bold" />
+              </Button>
+            </div>
+            {chatsList.length === 0 ? (
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
+                No chats yet. Start a new conversation!
+              </p>
+            ) : (
+              <div className="space-y-2 mb-3">
+                {chatsList.map((chat) => (
+                  <div
+                    key={chat.id}
+                    className={`w-full p-3 rounded-md transition-colors ${
+                      currentChatSession?.id === chat.id
+                        ? "bg-[#F48120]/10 border border-[#F48120]/30"
+                        : "bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        className="flex-1 text-left"
+                        onClick={() => switchToChat(chat.id, chat.title)}
+                      >
+                        <p className="font-semibold text-sm truncate">
+                          {chat.title}
+                        </p>
+                        <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                          {new Date(chat.updated_at * 1000).toLocaleDateString()}
+                        </p>
+                      </button>
+                      {currentChatSession?.id !== chat.id && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          shape="square"
+                          className="rounded-full h-6 w-6 shrink-0"
+                          onClick={() => deleteChat(chat.id)}
+                        >
+                          <TrashIcon size={14} weight="bold" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button
+              onClick={() => {
+                startNewChat();
+                setShowChatsList(false);
+              }}
+              className="w-full bg-[#F48120] hover:bg-[#F48120]/90 text-white"
+              size="sm"
+            >
+              <PlusIcon size={16} weight="bold" className="mr-2" />
+              New Chat
+            </Button>
+          </div>
+        )}
+
+        {showProfile && (
+          <div className="p-4 border-b border-neutral-300 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 max-h-[500px] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">
+                {isCreatingNewProfile ? "Create New Profile" : "Update Profile & Tests"}
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                shape="square"
+                className="rounded-full h-7 w-7"
+                onClick={() => {
+                  setShowProfile(false);
+                  setIsCreatingNewProfile(false);
+                }}
+              >
+                <XIcon size={16} weight="bold" />
+              </Button>
+            </div>
+            <p className="text-xs text-neutral-600 dark:text-neutral-400 mb-3">
+              {isCreatingNewProfile ? "Fill in your details to create a new profile." : "Update your profile or add test results. You can also share info via chat!"}
+            </p>
+            <div className="space-y-2">
+              <input
+                placeholder="Name (required)"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.name}
+                onChange={(e) =>
+                  setProfile({ ...profile, name: e.target.value })
+                }
+              />
+              <input
+                placeholder="Age (required)"
+                type="number"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.age}
+                onChange={(e) =>
+                  setProfile({ ...profile, age: e.target.value })
+                }
+              />
+              <input
+                placeholder="Sex (e.g., Male, Female, prefer not to say)"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.sex}
+                onChange={(e) =>
+                  setProfile({ ...profile, sex: e.target.value })
+                }
+              />
+              <input
+                placeholder="Race (e.g., Indian Asian, prefer not to say)"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.race}
+                onChange={(e) =>
+                  setProfile({ ...profile, race: e.target.value })
+                }
+              />
+              <input
+                placeholder="Religion (e.g., Hindu, Muslim, prefer not to say)"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.religion}
+                onChange={(e) =>
+                  setProfile({ ...profile, religion: e.target.value })
+                }
+              />
+              <input
+                placeholder="Allergies (e.g., Peanuts, Shellfish)"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.allergies}
+                onChange={(e) =>
+                  setProfile({ ...profile, allergies: e.target.value })
+                }
+              />
+              <input
+                placeholder="Conditions (e.g., Thyroid, Diabetes)"
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                value={profile.conditions}
+                onChange={(e) =>
+                  setProfile({ ...profile, conditions: e.target.value })
+                }
+              />
+              <Button
+                onClick={saveProfile}
+                className="w-full"
+                disabled={!profile.name || !profile.age}
+              >
+                {isCreatingNewProfile ? "Create Profile" : "Update Profile"}
+              </Button>
+              {!isCreatingNewProfile && currentProfile && (
+                <>
+                  <div className="pt-4 mt-4 border-t border-neutral-300 dark:border-neutral-700">
+                    <h4 className="font-semibold text-sm mb-2">Add Test Result</h4>
+                    <div className="space-y-2">
+                      <input
+                        placeholder="Test name (e.g., TSH)"
+                        className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                        value={testResult.test}
+                        onChange={(e) =>
+                          setTestResult({ ...testResult, test: e.target.value })
+                        }
+                      />
+                      <input
+                        placeholder="Value (e.g., 3.2)"
+                        className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                        value={testResult.value}
+                        onChange={(e) =>
+                          setTestResult({ ...testResult, value: e.target.value })
+                        }
+                      />
+                      <input
+                        placeholder="Date (e.g., Dec 12, 2023)"
+                        className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 rounded-md bg-white dark:bg-neutral-900"
+                        value={testResult.date}
+                        onChange={(e) =>
+                          setTestResult({ ...testResult, date: e.target.value })
+                        }
+                      />
+                      <Button onClick={saveTestResult} className="w-full" size="sm">
+                        Add Test Result
+                      </Button>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="w-full mt-2"
+                    variant="ghost"
+                  >
+                    Delete Profile
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showDeleteConfirm && (
+          <div className="p-4 border-b border-neutral-300 dark:border-neutral-800 bg-red-50 dark:bg-red-900/20">
+            <h3 className="font-semibold mb-3 text-red-800 dark:text-red-300">
+              Confirm Delete
+            </h3>
+            <p className="text-sm text-red-700 dark:text-red-400 mb-3">
+              Are you sure you want to delete the profile for{" "}
+              {currentProfile?.name}? This will also delete all associated test
+              results. This action cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={deleteProfile}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+              >
+                Yes, Delete
+              </Button>
+              <Button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 max-h-[calc(100vh-10rem)]">
           {agentMessages.length === 0 && (
             <div className="h-full flex items-center justify-center">
               <Card className="p-6 max-w-md mx-auto bg-neutral-100 dark:bg-neutral-900">
                 <div className="text-center space-y-4">
-                  <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex">
-                    <Robot size={24} />
+                  <div className="bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 rounded-lg p-3 mb-4">
+                    <p className="text-xs font-semibold">
+                      IMPORTANT DISCLAIMER
+                    </p>
+                    <p className="text-xs mt-1">
+                      This is an AI prototype for demonstration purposes only.
+                      Always consult a qualified healthcare professional before
+                      making dietary changes.
+                    </p>
                   </div>
-                  <h3 className="font-semibold text-lg">Welcome to AI Chat</h3>
+                  <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex">
+                    <RobotIcon size={24} weight="bold" />
+                  </div>
+                  <h3 className="font-semibold text-lg">AI Dietician</h3>
                   <p className="text-muted-foreground text-sm">
-                    Start a conversation with your AI assistant. Try asking
-                    about:
+                    Get personalized diet recommendations based on your health
+                    profile.
                   </p>
                   <ul className="text-sm text-left space-y-2">
                     <li className="flex items-center gap-2">
                       <span className="text-[#F48120]">•</span>
-                      <span>Weather information for any city</span>
+                      <span>Create and manage multiple user profiles</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <span className="text-[#F48120]">•</span>
-                      <span>Local time in different locations</span>
+                      <span>Share profile info via chat or form</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-[#F48120]">•</span>
+                      <span>Add test results through conversation</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-[#F48120]">•</span>
+                      <span>Get culturally-sensitive diet advice</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-[#F48120]">•</span>
+                      <span>Update or delete profiles anytime</span>
                     </li>
                   </ul>
                 </div>
@@ -225,65 +883,35 @@ export default function Chat() {
             const isUser = m.role === "user";
             const showAvatar =
               index === 0 || agentMessages[index - 1]?.role !== m.role;
-
             return (
               <div key={m.id}>
-                {showDebug && (
-                  <pre className="text-xs text-muted-foreground overflow-scroll">
-                    {JSON.stringify(m, null, 2)}
-                  </pre>
-                )}
                 <div
                   className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`flex gap-2 max-w-[85%] ${
-                      isUser ? "flex-row-reverse" : "flex-row"
-                    }`}
+                    className={`flex gap-2 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"}`}
                   >
                     {showAvatar && !isUser ? (
-                      <Avatar username={"AI"} className="flex-shrink-0" />
+                      <Avatar username={"AI"} className="shrink-0" />
                     ) : (
                       !isUser && <div className="w-8" />
                     )}
-
                     <div>
                       <div>
                         {m.parts?.map((part, i) => {
                           if (part.type === "text") {
                             return (
-                              // biome-ignore lint/suspicious/noArrayIndexKey: immutable index
-                              <div key={i}>
+                              <div key={`${m.id}-text-${i}`}>
                                 <Card
-                                  className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${
-                                    isUser
-                                      ? "rounded-br-none"
-                                      : "rounded-bl-none border-assistant-border"
-                                  } ${
-                                    part.text.startsWith("scheduled message")
-                                      ? "border-accent/50"
-                                      : ""
-                                  } relative`}
+                                  className={`p-3 rounded-md bg-neutral-100 dark:bg-neutral-900 ${isUser ? "rounded-br-none" : "rounded-bl-none border-assistant-border"} relative`}
                                 >
-                                  {part.text.startsWith(
-                                    "scheduled message"
-                                  ) && (
-                                    <span className="absolute -top-3 -left-2 text-base">
-                                      🕒
-                                    </span>
-                                  )}
                                   <MemoizedMarkdown
                                     id={`${m.id}-${i}`}
-                                    content={part.text.replace(
-                                      /^scheduled message: /,
-                                      ""
-                                    )}
+                                    content={part.text}
                                   />
                                 </Card>
                                 <p
-                                  className={`text-xs text-muted-foreground mt-1 ${
-                                    isUser ? "text-right" : "text-left"
-                                  }`}
+                                  className={`text-xs text-muted-foreground mt-1 ${isUser ? "text-right" : "text-left"}`}
                                 >
                                   {formatTime(
                                     m.metadata?.createdAt
@@ -294,22 +922,13 @@ export default function Chat() {
                               </div>
                             );
                           }
-
                           if (isToolUIPart(part) && m.role === "assistant") {
-                            const toolCallId = part.toolCallId;
-                            const toolName = part.type.replace("tool-", "");
-                            const needsConfirmation =
-                              toolsRequiringConfirmation.includes(
-                                toolName as keyof typeof tools
-                              );
-
                             return (
                               <ToolInvocationCard
-                                // biome-ignore lint/suspicious/noArrayIndexKey: using index is safe here as the array is static
-                                key={`${toolCallId}-${i}`}
+                                key={`${part.toolCallId}-${i}`}
                                 toolUIPart={part}
-                                toolCallId={toolCallId}
-                                needsConfirmation={needsConfirmation}
+                                toolCallId={part.toolCallId}
+                                needsConfirmation={false}
                                 onSubmit={({ toolCallId, result }) => {
                                   addToolResult({
                                     tool: part.type.replace("tool-", ""),
@@ -339,33 +958,22 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleAgentSubmit(e, {
-              annotations: {
-                hello: "world"
-              }
-            });
-            setTextareaHeight("auto"); // Reset height after submission
+            handleAgentSubmit(e, {});
+            setTextareaHeight("auto");
           }}
           className="p-3 bg-neutral-50 absolute bottom-0 left-0 right-0 z-10 border-t border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900"
         >
           <div className="flex items-center gap-2">
             <div className="flex-1 relative">
               <Textarea
-                disabled={pendingToolCallConfirmation}
-                placeholder={
-                  pendingToolCallConfirmation
-                    ? "Please respond to the tool confirmation above..."
-                    : "Send a message..."
-                }
-                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2  ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl !text-base pb-10 dark:bg-neutral-900"
+                placeholder="Ask about diet recommendations..."
+                className="flex w-full border border-neutral-200 dark:border-neutral-700 px-3 py-2 ring-offset-background placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:focus-visible:ring-neutral-700 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-6 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl text-base! pb-10 dark:bg-neutral-900"
                 value={agentInput}
                 onChange={(e) => {
                   handleAgentInputChange(e);
-                  // Auto-resize the textarea
                   e.target.style.height = "auto";
                   e.target.style.height = `${e.target.scrollHeight}px`;
                   setTextareaHeight(`${e.target.scrollHeight}px`);
@@ -378,7 +986,7 @@ export default function Chat() {
                   ) {
                     e.preventDefault();
                     handleAgentSubmit(e as unknown as React.FormEvent);
-                    setTextareaHeight("auto"); // Reset height on Enter submission
+                    setTextareaHeight("auto");
                   }
                 }}
                 rows={2}
@@ -389,19 +997,21 @@ export default function Chat() {
                   <button
                     type="button"
                     onClick={stop}
-                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
-                    aria-label="Stop generation"
+                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-[#F48120] text-white hover:bg-[#F48120]/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
                   >
-                    <Stop size={16} />
+                    <StopIcon size={16} className="shrink-0" weight="fill" />
                   </button>
                 ) : (
                   <button
                     type="submit"
-                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
-                    disabled={pendingToolCallConfirmation || !agentInput.trim()}
-                    aria-label="Send message"
+                    className="inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-[#F48120] text-white hover:bg-[#F48120]/90 disabled:bg-neutral-300 disabled:text-neutral-500 rounded-full p-1.5 h-fit border border-neutral-200 dark:border-neutral-800"
+                    disabled={!agentInput.trim()}
                   >
-                    <PaperPlaneTilt size={16} />
+                    <PaperPlaneTiltIcon
+                      size={16}
+                      className="shrink-0"
+                      weight="fill"
+                    />
                   </button>
                 )}
               </div>
@@ -411,78 +1021,4 @@ export default function Chat() {
       </div>
     </div>
   );
-}
-
-const hasOpenAiKeyPromise = fetch("/check-open-ai-key").then((res) =>
-  res.json<{ success: boolean }>()
-);
-
-function HasOpenAIKey() {
-  const hasOpenAiKey = use(hasOpenAiKeyPromise);
-
-  if (!hasOpenAiKey.success) {
-    return (
-      <div className="fixed top-0 left-0 right-0 z-50 bg-red-500/10 backdrop-blur-sm">
-        <div className="max-w-3xl mx-auto p-4">
-          <div className="bg-white dark:bg-neutral-900 rounded-lg shadow-lg border border-red-200 dark:border-red-900 p-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
-                <svg
-                  className="w-5 h-5 text-red-600 dark:text-red-400"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-labelledby="warningIcon"
-                >
-                  <title id="warningIcon">Warning Icon</title>
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">
-                  OpenAI API Key Not Configured
-                </h3>
-                <p className="text-neutral-600 dark:text-neutral-300 mb-1">
-                  Requests to the API, including from the frontend UI, will not
-                  work until an OpenAI API key is configured.
-                </p>
-                <p className="text-neutral-600 dark:text-neutral-300">
-                  Please configure an OpenAI API key by setting a{" "}
-                  <a
-                    href="https://developers.cloudflare.com/workers/configuration/secrets/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-red-600 dark:text-red-400"
-                  >
-                    secret
-                  </a>{" "}
-                  named{" "}
-                  <code className="bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded text-red-600 dark:text-red-400 font-mono text-sm">
-                    OPENAI_API_KEY
-                  </code>
-                  . <br />
-                  You can also use a different model provider by following these{" "}
-                  <a
-                    href="https://github.com/cloudflare/agents-starter?tab=readme-ov-file#use-a-different-ai-model-provider"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-red-600 dark:text-red-400"
-                  >
-                    instructions.
-                  </a>
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return null;
 }
